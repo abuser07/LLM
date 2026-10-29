@@ -1,0 +1,5 @@
+E:/cocumentos/trabalhos/LLM/build/CMakeFiles/llm_studio.dir
+E:/cocumentos/trabalhos/LLM/build/CMakeFiles/edit_cache.dir
+E:/cocumentos/trabalhos/LLM/build/CMakeFiles/rebuild_cache.dir
+E:/cocumentos/trabalhos/LLM/build/CMakeFiles/llm_studio_autogen_timestamp_deps.dir
+E:/cocumentos/trabalhos/LLM/build/CMakeFiles/llm_studio_autogen.dir

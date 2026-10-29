@@ -1,0 +1,17 @@
+# ninja log v6
+5889	6088	8150184979427809	llm_studio.exe	72683991eec29fb7
+60	530	8150184924980800	llm_studio_autogen/timestamp	9a056111199fcdfd
+60	530	8150184924980800	llm_studio_autogen/mocs_compilation.cpp	9a056111199fcdfd
+60	530	8150184924980800	E:/cocumentos/trabalhos/LLM/build/llm_studio_autogen/timestamp	9a056111199fcdfd
+60	530	8150184924980800	E:/cocumentos/trabalhos/LLM/build/llm_studio_autogen/mocs_compilation.cpp	9a056111199fcdfd
+542	5889	8150184925931897	CMakeFiles/llm_studio.dir/mainwindow.cpp.obj	42c337bd01e15fdf
+536	3142	8150184925862603	CMakeFiles/llm_studio.dir/main.cpp.obj	5be13db532e1720b
+531	3258	8150184925771846	CMakeFiles/llm_studio.dir/llm_studio_autogen/mocs_compilation.cpp.obj	ebcba635c054bf12
+63	528	8150186306455779	llm_studio_autogen/timestamp	9a056111199fcdfd
+63	528	8150186306455779	llm_studio_autogen/mocs_compilation.cpp	9a056111199fcdfd
+63	528	8150186306455779	E:/cocumentos/trabalhos/LLM/build/llm_studio_autogen/timestamp	9a056111199fcdfd
+63	528	8150186306455779	E:/cocumentos/trabalhos/LLM/build/llm_studio_autogen/mocs_compilation.cpp	9a056111199fcdfd
+535	3224	8150186307381954	CMakeFiles/llm_studio.dir/main.cpp.obj	5be13db532e1720b
+530	3338	8150186307321389	CMakeFiles/llm_studio.dir/llm_studio_autogen/mocs_compilation.cpp.obj	ebcba635c054bf12
+539	6059	8150186307422060	CMakeFiles/llm_studio.dir/mainwindow.cpp.obj	42c337bd01e15fdf
+6059	6249	8150186362596813	llm_studio.exe	72683991eec29fb7
