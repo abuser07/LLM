@@ -5,10 +5,8 @@
 #include <QPlainTextEdit>
 #include <QDoubleSpinBox>
 #include <QPushButton>
-#include <QToolButton>
 #include <QLineEdit>
 #include <QLabel>
-#include <QMenu>
 #include <QTabWidget>
 #include <QSplitter>
 #include <QGroupBox>
@@ -327,6 +325,50 @@ bool editProviderDialog(ProviderConfig &cfg, QWidget *parent)
     return !cfg.name.isEmpty() && !cfg.baseUrl.isEmpty();
 }
 
+// Pastas ruidosas a serem ignoradas ao listar a estrutura de um projeto.
+bool shouldIgnoreDir(const QString &name)
+{
+    static const QStringList ignored = {
+        QStringLiteral(".git"), QStringLiteral(".svn"), QStringLiteral(".hg"),
+        QStringLiteral("node_modules"), QStringLiteral("__pycache__"),
+        QStringLiteral("venv"), QStringLiteral(".venv"), QStringLiteral("target"),
+        QStringLiteral(".idea"), QStringLiteral(".vscode"), QStringLiteral(".vs")
+    };
+    return ignored.contains(name);
+}
+
+// Monta recursivamente a árvore de arquivos de um projeto (com limites).
+void listDirTree(const QString &dir, int depth, int maxDepth,
+                 int &count, int maxCount, QString &out)
+{
+    if (depth > maxDepth || count >= maxCount)
+        return;
+
+    QDir d(dir);
+    const QFileInfoList entries = d.entryInfoList(
+        QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot,
+        QDir::DirsFirst | QDir::Name);
+
+    for (const QFileInfo &fi : entries) {
+        if (count >= maxCount) {
+            out += QString(depth * 2, QLatin1Char(' ')) + QStringLiteral("... (limite atingido)\n");
+            return;
+        }
+
+        if (fi.isDir()) {
+            if (shouldIgnoreDir(fi.fileName()))
+                continue;
+            out += QString(depth * 2, QLatin1Char(' '))
+                + QStringLiteral("📁 ") + fi.fileName() + QLatin1Char('/') + QLatin1Char('\n');
+            ++count;
+            listDirTree(fi.absoluteFilePath(), depth + 1, maxDepth, count, maxCount, out);
+        } else {
+            out += QString(depth * 2, QLatin1Char(' ')) + fi.fileName() + QLatin1Char('\n');
+            ++count;
+        }
+    }
+}
+
 } // namespace
 
 // =====================================================================
@@ -517,18 +559,14 @@ void MainWindow::buildUi()
     promptLayout->addWidget(m_systemPrompt);
 
     // --- Acesso ao sistema local ---
-    m_pathBtn = new QToolButton;
-    m_pathBtn->setText(QStringLiteral("Selecionar Pasta/Arquivo"));
-    m_pathBtn->setObjectName(QStringLiteral("pathBtn"));
-    m_pathBtn->setToolButtonStyle(Qt::ToolButtonTextOnly);
-    m_pathBtn->setPopupMode(QToolButton::MenuButtonPopup);
-    m_pathBtn->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+    m_folderBtn = new QPushButton(QStringLiteral("📁 Selecionar Pasta (projeto)"));
+    m_folderBtn->setObjectName(QStringLiteral("pathBtn"));
+    m_folderBtn->setToolTip(QStringLiteral("Selecionar uma pasta/projeto existente para anexar a estrutura de arquivos ao contexto"));
+    connect(m_folderBtn, &QPushButton::clicked, this, &MainWindow::selectFolder);
 
-    auto *pathMenu = new QMenu(m_pathBtn);
-    pathMenu->addAction(QStringLiteral("Selecionar Arquivo..."), this, &MainWindow::selectFile);
-    pathMenu->addAction(QStringLiteral("Selecionar Pasta..."), this, &MainWindow::selectFolder);
-    m_pathBtn->setMenu(pathMenu);
-    connect(m_pathBtn, &QToolButton::clicked, this, &MainWindow::selectFile);
+    m_fileBtn = new QPushButton(QStringLiteral("📄 Selecionar Arquivo"));
+    m_fileBtn->setToolTip(QStringLiteral("Selecionar um arquivo para anexar o conteúdo ao contexto"));
+    connect(m_fileBtn, &QPushButton::clicked, this, &MainWindow::selectFile);
 
     m_explorerBtn = new QPushButton(QStringLiteral("Abrir no Explorer"));
     m_explorerBtn->setObjectName(QStringLiteral("explorerBtn"));
@@ -537,7 +575,8 @@ void MainWindow::buildUi()
 
     auto *systemGroup = new QGroupBox(QStringLiteral("Acesso ao Sistema Local"));
     auto *systemLayout = new QVBoxLayout(systemGroup);
-    systemLayout->addWidget(m_pathBtn);
+    systemLayout->addWidget(m_folderBtn);
+    systemLayout->addWidget(m_fileBtn);
     systemLayout->addWidget(m_explorerBtn);
 
     auto *settingsTab = new QWidget;
@@ -723,21 +762,14 @@ void MainWindow::applyTheme()
             background-color: #585b70;
             color: #313244;
         }
-        QToolButton#pathBtn {
+        QPushButton#pathBtn {
             background-color: #a6e3a1;
             color: #11111b;
             font-weight: bold;
-            padding: 8px 12px;
-            border-radius: 6px;
             border: none;
         }
-        QToolButton#pathBtn:hover {
+        QPushButton#pathBtn:hover {
             background-color: #bdeab8;
-        }
-        QToolButton#pathBtn::menu-indicator {
-            subcontrol-position: right center;
-            subcontrol-origin: padding;
-            right: 8px;
         }
         QScrollBar:vertical {
             background: #181825;
@@ -1532,22 +1564,22 @@ void MainWindow::selectFile()
 void MainWindow::selectFolder()
 {
     const QString path = QFileDialog::getExistingDirectory(this,
-        QStringLiteral("Selecionar Pasta"), m_lastPath);
+        QStringLiteral("Selecionar Pasta do Projeto"), m_lastPath);
     if (path.isEmpty())
         return;
 
     m_lastPath = path;
 
-    QDir dir(path);
-    const QStringList entries = dir.entryList(QDir::Dirs | QDir::Files | QDir::NoDotAndDotDot,
-                                              QDir::Name);
-    QString block = QStringLiteral("Pasta: ") + path + QStringLiteral("\nConteúdo:\n");
-    for (const QString &entry : entries)
-        block += QStringLiteral("- ") + entry + QLatin1Char('\n');
+    QString tree;
+    int count = 0;
+    listDirTree(path, 0, 4, count, 300, tree);
+
+    QString block = QStringLiteral("Projeto (pasta): ") + path
+        + QStringLiteral("\nEstrutura de arquivos:\n") + tree;
 
     m_contextBlocks.append(block);
-    appendSystemBlock(QStringLiteral("📁 Contexto anexado: ") + path);
-    setStatus(QStringLiteral("Pasta anexada ao contexto."));
+    appendSystemBlock(QStringLiteral("📁 Projeto anexado: ") + path);
+    setStatus(QStringLiteral("Projeto anexado ao contexto."));
 }
 
 void MainWindow::openInExplorer()

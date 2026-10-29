@@ -16,7 +16,6 @@ class QTextBrowser;
 class QPlainTextEdit;
 class QDoubleSpinBox;
 class QPushButton;
-class QToolButton;
 class QLineEdit;
 class QLabel;
 class QTimer;
@@ -166,7 +165,8 @@ private:
     QDoubleSpinBox *m_tempSpin = nullptr;
     QDoubleSpinBox *m_topPSpin = nullptr;
     QPlainTextEdit *m_systemPrompt = nullptr;
-    QToolButton *m_pathBtn = nullptr;
+    QPushButton *m_folderBtn = nullptr;
+    QPushButton *m_fileBtn = nullptr;
     QPushButton *m_explorerBtn = nullptr;
     QLineEdit *m_termInput = nullptr;
     QPlainTextEdit *m_termOutput = nullptr;
