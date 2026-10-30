@@ -39,6 +39,8 @@
 #include <QStatusBar>
 #include <QSettings>
 #include <QTimer>
+#include <QTranslator>
+#include <QLocale>
 #include <QSignalBlocker>
 #include <QRegularExpression>
 #include <QSet>
@@ -284,15 +286,17 @@ QString markdownToHtml(const QString &md)
 bool editProviderDialog(ProviderConfig &cfg, QWidget *parent)
 {
     QDialog dlg(parent);
-    dlg.setWindowTitle(cfg.name.isEmpty() ? QStringLiteral("Novo Provedor") : QStringLiteral("Editar Provedor"));
+    dlg.setWindowTitle(cfg.name.isEmpty()
+        ? QCoreApplication::translate("MainWindow", "Novo Provedor")
+        : QCoreApplication::translate("MainWindow", "Editar Provedor"));
     dlg.resize(440, 200);
 
     auto *form = new QFormLayout(&dlg);
 
     auto *name = new QLineEdit(cfg.name);
     auto *kind = new QComboBox;
-    kind->addItem(QStringLiteral("Ollama (local)"), int(ProviderKind::Ollama));
-    kind->addItem(QStringLiteral("OpenAI-compatível (DeepSeek, OpenRouter, etc.)"), int(ProviderKind::OpenAI));
+    kind->addItem(QCoreApplication::translate("MainWindow", "Ollama (local)"), int(ProviderKind::Ollama));
+    kind->addItem(QCoreApplication::translate("MainWindow", "OpenAI-compatível (DeepSeek, OpenRouter, etc.)"), int(ProviderKind::OpenAI));
     kind->setCurrentIndex(cfg.kind == ProviderKind::OpenAI ? 1 : 0);
 
     auto *base = new QLineEdit(cfg.baseUrl);
@@ -300,12 +304,12 @@ bool editProviderDialog(ProviderConfig &cfg, QWidget *parent)
 
     auto *key = new QLineEdit(cfg.apiKey);
     key->setEchoMode(QLineEdit::Password);
-    key->setPlaceholderText(QStringLiteral("Opcional para Ollama"));
+    key->setPlaceholderText(QCoreApplication::translate("MainWindow", "Opcional para Ollama"));
 
-    form->addRow(QStringLiteral("Nome:"), name);
-    form->addRow(QStringLiteral("Tipo:"), kind);
-    form->addRow(QStringLiteral("URL base:"), base);
-    form->addRow(QStringLiteral("Chave API:"), key);
+    form->addRow(QCoreApplication::translate("MainWindow", "Nome:"), name);
+    form->addRow(QCoreApplication::translate("MainWindow", "Tipo:"), kind);
+    form->addRow(QCoreApplication::translate("MainWindow", "URL base:"), base);
+    form->addRow(QCoreApplication::translate("MainWindow", "Chave API:"), key);
 
     auto *btns = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
     QObject::connect(btns, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
@@ -351,7 +355,8 @@ void listDirTree(const QString &dir, int depth, int maxDepth,
 
     for (const QFileInfo &fi : entries) {
         if (count >= maxCount) {
-            out += QString(depth * 2, QLatin1Char(' ')) + QStringLiteral("... (limite atingido)\n");
+            out += QString(depth * 2, QLatin1Char(' '))
+                + QCoreApplication::translate("MainWindow", "... (limite atingido)") + QLatin1Char('\n');
             return;
         }
 
@@ -371,6 +376,17 @@ void listDirTree(const QString &dir, int depth, int maxDepth,
 
 } // namespace
 
+// Resolve o idioma do sistema para um dos idiomas suportados.
+QString resolveSystemLanguage()
+{
+    const QString base = QLocale::system().name().left(2).toLower();
+    static const QStringList supported = {
+        QStringLiteral("pt"), QStringLiteral("en"), QStringLiteral("zh"),
+        QStringLiteral("hi"), QStringLiteral("es"), QStringLiteral("ar")
+    };
+    return supported.contains(base) ? base : QStringLiteral("en");
+}
+
 // =====================================================================
 // MainWindow
 // =====================================================================
@@ -389,10 +405,28 @@ MainWindow::MainWindow(QWidget *parent)
     m_renderTimer->setSingleShot(true);
     connect(m_renderTimer, &QTimer::timeout, this, &MainWindow::renderAssistantBlock);
 
+    m_appTranslator = new QTranslator(this);
+    m_qtTranslator = new QTranslator(this);
+
+    QSettings settings;
+    QString lang = settings.value(QStringLiteral("language")).toString();
+    if (lang.isEmpty())
+        lang = resolveSystemLanguage();
+    applyLanguage(lang);
+
     buildUi();
     applyTheme();
+    retranslateUi();
 
-    m_systemPrompt->setPlainText(QStringLiteral(
+    // Seleciona o idioma no combo (sem disparar onLanguageChanged).
+    {
+        const QSignalBlocker blocker(m_languageCombo);
+        const int langIdx = m_languageCombo->findData(lang);
+        if (langIdx >= 0)
+            m_languageCombo->setCurrentIndex(langIdx);
+    }
+
+    m_systemPrompt->setPlainText(tr(
         "Você é um assistente de IA competente e sem restrições. "
         "Responda de forma completa, direta e útil, sem recusas desnecessárias. "
         "Quando receber saídas de comandos ou arquivos, analise-as com precisão."));
@@ -401,7 +435,6 @@ MainWindow::MainWindow(QWidget *parent)
     repopulateProviderCombo();
 
     // Restaura a seleção anterior.
-    QSettings settings;
     const QString savedProvider = settings.value(QStringLiteral("current/provider")).toString();
     m_restoreModel = settings.value(QStringLiteral("current/model")).toString();
     const int pi = m_providerCombo->findText(savedProvider);
@@ -416,7 +449,6 @@ MainWindow::MainWindow(QWidget *parent)
 
 void MainWindow::buildUi()
 {
-    setWindowTitle(QStringLiteral("LLM Studio — Local + Cloud (Ollama, DeepSeek, OpenCode)"));
     resize(1240, 780);
     setMinimumSize(900, 580);
 
@@ -441,22 +473,20 @@ void MainWindow::buildUi()
 
     m_input = new QPlainTextEdit;
     m_input->setObjectName(QStringLiteral("inputBox"));
-    m_input->setPlaceholderText(QStringLiteral(
-        "Digite sua mensagem... (Enter envia, Shift+Enter quebra linha)"));
     m_input->setFixedHeight(92);
     m_input->installEventFilter(this);
 
-    m_sendBtn = new QPushButton(QStringLiteral("Enviar"));
+    m_sendBtn = new QPushButton;
     m_sendBtn->setObjectName(QStringLiteral("sendBtn"));
     m_sendBtn->setFixedHeight(92);
     m_sendBtn->setMinimumWidth(120);
     connect(m_sendBtn, &QPushButton::clicked, this, &MainWindow::sendMessage);
 
-    m_clearBtn = new QPushButton(QStringLiteral("Limpar Chat"));
+    m_clearBtn = new QPushButton;
     m_clearBtn->setObjectName(QStringLiteral("clearBtn"));
     connect(m_clearBtn, &QPushButton::clicked, this, &MainWindow::clearChat);
 
-    m_exportBtn = new QPushButton(QStringLiteral("Exportar Conversa"));
+    m_exportBtn = new QPushButton;
     m_exportBtn->setObjectName(QStringLiteral("exportBtn"));
     connect(m_exportBtn, &QPushButton::clicked, this, &MainWindow::exportConversation);
 
@@ -481,54 +511,48 @@ void MainWindow::buildUi()
     // ---------------------------------------------------------------
     // --- Provedor & Modelo ---
     m_providerCombo = new QComboBox;
-    m_providerCombo->setToolTip(QStringLiteral("Provedor de IA a ser usado"));
     connect(m_providerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onProviderChanged);
 
-    auto *manageBtn = new QPushButton(QStringLiteral("Gerenciar"));
-    manageBtn->setToolTip(QStringLiteral("Adicionar/editar/remover provedores"));
-    connect(manageBtn, &QPushButton::clicked, this, &MainWindow::manageProviders);
+    m_manageBtn = new QPushButton;
+    connect(m_manageBtn, &QPushButton::clicked, this, &MainWindow::manageProviders);
 
     auto *providerRow = new QHBoxLayout;
     providerRow->addWidget(m_providerCombo, 1);
-    providerRow->addWidget(manageBtn);
+    providerRow->addWidget(m_manageBtn);
 
     m_modelCombo = new QComboBox;
     m_modelCombo->setEditable(true);
-    m_modelCombo->setPlaceholderText(QStringLiteral("Selecione ou digite o modelo..."));
     connect(m_modelCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &MainWindow::onModelChanged);
     if (m_modelCombo->lineEdit())
         connect(m_modelCombo->lineEdit(), &QLineEdit::editingFinished, this, &MainWindow::onModelChanged);
 
-    auto *refreshBtn = new QPushButton(QStringLiteral("↻"));
-    refreshBtn->setObjectName(QStringLiteral("refreshBtn"));
-    refreshBtn->setToolTip(QStringLiteral("Atualizar lista de modelos"));
-    connect(refreshBtn, &QPushButton::clicked, this, &MainWindow::refreshModels);
+    m_refreshBtn = new QPushButton;
+    m_refreshBtn->setObjectName(QStringLiteral("refreshBtn"));
+    connect(m_refreshBtn, &QPushButton::clicked, this, &MainWindow::refreshModels);
 
-    m_pullBtn = new QPushButton(QStringLiteral("Baixar"));
+    m_pullBtn = new QPushButton;
     m_pullBtn->setObjectName(QStringLiteral("pullBtn"));
-    m_pullBtn->setToolTip(QStringLiteral("Baixar um modelo do Ollama (ollama pull)"));
     connect(m_pullBtn, &QPushButton::clicked, this, &MainWindow::pullModel);
 
     auto *modelRow = new QHBoxLayout;
     modelRow->addWidget(m_modelCombo, 1);
-    modelRow->addWidget(refreshBtn);
+    modelRow->addWidget(m_refreshBtn);
     modelRow->addWidget(m_pullBtn);
 
-    auto *importBtn = new QPushButton(QStringLiteral("Importar provedores do OpenCode"));
-    importBtn->setToolTip(QStringLiteral("Lê a configuração do OpenCode (~/.config/opencode) e importa os provedores/chaves"));
-    connect(importBtn, &QPushButton::clicked, this, &MainWindow::importFromOpenCode);
+    m_importBtn = new QPushButton;
+    connect(m_importBtn, &QPushButton::clicked, this, &MainWindow::importFromOpenCode);
 
     m_serverInfo = new QLabel;
     m_serverInfo->setObjectName(QStringLiteral("serverInfo"));
     m_serverInfo->setWordWrap(true);
 
-    auto *providerGroup = new QGroupBox(QStringLiteral("Provedor & Modelo"));
-    auto *providerLayout = new QVBoxLayout(providerGroup);
+    m_providerGroup = new QGroupBox;
+    auto *providerLayout = new QVBoxLayout(m_providerGroup);
     providerLayout->addLayout(providerRow);
     providerLayout->addLayout(modelRow);
-    providerLayout->addWidget(importBtn);
+    providerLayout->addWidget(m_importBtn);
     providerLayout->addWidget(m_serverInfo);
 
     // --- Parâmetros ---
@@ -544,37 +568,51 @@ void MainWindow::buildUi()
     m_topPSpin->setDecimals(2);
     m_topPSpin->setValue(0.9);
 
-    auto *paramsGroup = new QGroupBox(QStringLiteral("Parâmetros"));
-    auto *paramsForm = new QFormLayout(paramsGroup);
-    paramsForm->addRow(QStringLiteral("Temperature"), m_tempSpin);
-    paramsForm->addRow(QStringLiteral("Top P"), m_topPSpin);
+    m_tempLabel = new QLabel;
+    m_topPLabel = new QLabel;
+    m_paramsGroup = new QGroupBox;
+    auto *paramsForm = new QFormLayout(m_paramsGroup);
+    paramsForm->addRow(m_tempLabel, m_tempSpin);
+    paramsForm->addRow(m_topPLabel, m_topPSpin);
 
     // --- System Prompt ---
     m_systemPrompt = new QPlainTextEdit;
     m_systemPrompt->setObjectName(QStringLiteral("systemPrompt"));
     m_systemPrompt->setFixedHeight(130);
 
-    auto *promptGroup = new QGroupBox(QStringLiteral("System Prompt"));
-    auto *promptLayout = new QVBoxLayout(promptGroup);
+    m_promptGroup = new QGroupBox;
+    auto *promptLayout = new QVBoxLayout(m_promptGroup);
     promptLayout->addWidget(m_systemPrompt);
 
+    // --- Idioma ---
+    m_languageCombo = new QComboBox;
+    m_languageCombo->addItem(QStringLiteral("Português"), QStringLiteral("pt"));
+    m_languageCombo->addItem(QStringLiteral("English"), QStringLiteral("en"));
+    m_languageCombo->addItem(QStringLiteral("中文 (简体)"), QStringLiteral("zh"));
+    m_languageCombo->addItem(QStringLiteral("हिन्दी"), QStringLiteral("hi"));
+    m_languageCombo->addItem(QStringLiteral("Español"), QStringLiteral("es"));
+    m_languageCombo->addItem(QStringLiteral("العربية"), QStringLiteral("ar"));
+    connect(m_languageCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &MainWindow::onLanguageChanged);
+
+    m_languageGroup = new QGroupBox;
+    auto *langLayout = new QVBoxLayout(m_languageGroup);
+    langLayout->addWidget(m_languageCombo);
+
     // --- Acesso ao sistema local ---
-    m_folderBtn = new QPushButton(QStringLiteral("📁 Selecionar Pasta (projeto)"));
+    m_folderBtn = new QPushButton;
     m_folderBtn->setObjectName(QStringLiteral("pathBtn"));
-    m_folderBtn->setToolTip(QStringLiteral("Selecionar uma pasta/projeto existente para anexar a estrutura de arquivos ao contexto"));
     connect(m_folderBtn, &QPushButton::clicked, this, &MainWindow::selectFolder);
 
-    m_fileBtn = new QPushButton(QStringLiteral("📄 Selecionar Arquivo"));
-    m_fileBtn->setToolTip(QStringLiteral("Selecionar um arquivo para anexar o conteúdo ao contexto"));
+    m_fileBtn = new QPushButton;
     connect(m_fileBtn, &QPushButton::clicked, this, &MainWindow::selectFile);
 
-    m_explorerBtn = new QPushButton(QStringLiteral("Abrir no Explorer"));
+    m_explorerBtn = new QPushButton;
     m_explorerBtn->setObjectName(QStringLiteral("explorerBtn"));
-    m_explorerBtn->setToolTip(QStringLiteral("Abrir o caminho selecionado no gerenciador de arquivos do SO"));
     connect(m_explorerBtn, &QPushButton::clicked, this, &MainWindow::openInExplorer);
 
-    auto *systemGroup = new QGroupBox(QStringLiteral("Acesso ao Sistema Local"));
-    auto *systemLayout = new QVBoxLayout(systemGroup);
+    m_systemGroup = new QGroupBox;
+    auto *systemLayout = new QVBoxLayout(m_systemGroup);
     systemLayout->addWidget(m_folderBtn);
     systemLayout->addWidget(m_fileBtn);
     systemLayout->addWidget(m_explorerBtn);
@@ -582,17 +620,17 @@ void MainWindow::buildUi()
     auto *settingsTab = new QWidget;
     auto *settingsLayout = new QVBoxLayout(settingsTab);
     settingsLayout->setContentsMargins(8, 8, 8, 8);
-    settingsLayout->addWidget(providerGroup);
-    settingsLayout->addWidget(paramsGroup);
-    settingsLayout->addWidget(promptGroup);
-    settingsLayout->addWidget(systemGroup);
+    settingsLayout->addWidget(m_providerGroup);
+    settingsLayout->addWidget(m_paramsGroup);
+    settingsLayout->addWidget(m_promptGroup);
+    settingsLayout->addWidget(m_languageGroup);
+    settingsLayout->addWidget(m_systemGroup);
     settingsLayout->addStretch();
 
     // --- Terminal ---
     m_termInput = new QLineEdit;
-    m_termInput->setPlaceholderText(QStringLiteral("Comando a executar (ex.: dir, ls -la, ping ...)"));
 
-    m_runBtn = new QPushButton(QStringLiteral("Executar"));
+    m_runBtn = new QPushButton;
     m_runBtn->setObjectName(QStringLiteral("runBtn"));
     connect(m_runBtn, &QPushButton::clicked, this, &MainWindow::runCommand);
 
@@ -603,9 +641,8 @@ void MainWindow::buildUi()
     m_termOutput = new QPlainTextEdit;
     m_termOutput->setObjectName(QStringLiteral("termOutput"));
     m_termOutput->setReadOnly(true);
-    m_termOutput->setPlaceholderText(QStringLiteral("Saída dos comandos aparecerá aqui..."));
 
-    m_sendOutputBtn = new QPushButton(QStringLiteral("Enviar saída para a LLM"));
+    m_sendOutputBtn = new QPushButton;
     m_sendOutputBtn->setObjectName(QStringLiteral("sendOutputBtn"));
     m_sendOutputBtn->setEnabled(false);
     connect(m_sendOutputBtn, &QPushButton::clicked, this, &MainWindow::sendTerminalOutputToPrompt);
@@ -617,9 +654,9 @@ void MainWindow::buildUi()
     termLayout->addWidget(m_termOutput, 1);
     termLayout->addWidget(m_sendOutputBtn);
 
-    auto *tabs = new QTabWidget;
-    tabs->addTab(settingsTab, QStringLiteral("Modelo & Ajustes"));
-    tabs->addTab(termTab, QStringLiteral("Terminal"));
+    m_tabs = new QTabWidget;
+    m_tabs->addTab(settingsTab, QString());
+    m_tabs->addTab(termTab, QString());
 
     auto *sidePanel = new QWidget;
     sidePanel->setObjectName(QStringLiteral("sidePanel"));
@@ -627,7 +664,7 @@ void MainWindow::buildUi()
     sidePanel->setMaximumWidth(440);
     auto *sideLayout = new QVBoxLayout(sidePanel);
     sideLayout->setContentsMargins(0, 0, 0, 0);
-    sideLayout->addWidget(tabs);
+    sideLayout->addWidget(m_tabs);
 
     auto *splitter = new QSplitter(Qt::Horizontal);
     splitter->addWidget(chatPanel);
@@ -636,7 +673,7 @@ void MainWindow::buildUi()
     splitter->setStretchFactor(1, 0);
     splitter->setSizes({ 830, 360 });
 
-    m_statusLabel = new QLabel(QStringLiteral("Conectando..."));
+    m_statusLabel = new QLabel;
     m_statusLabel->setObjectName(QStringLiteral("statusLabel"));
     statusBar()->addWidget(m_statusLabel, 1);
 
@@ -645,6 +682,91 @@ void MainWindow::buildUi()
     rootLayout->setContentsMargins(0, 0, 0, 0);
     rootLayout->addWidget(splitter);
     setCentralWidget(central);
+}
+
+void MainWindow::retranslateUi()
+{
+    setWindowTitle(tr("LLM Studio — Local + Cloud (Ollama, DeepSeek, OpenCode)"));
+
+    m_input->setPlaceholderText(tr("Digite sua mensagem... (Enter envia, Shift+Enter quebra linha)"));
+    m_sendBtn->setText(tr("Enviar"));
+    m_clearBtn->setText(tr("Limpar Chat"));
+    m_exportBtn->setText(tr("Exportar Conversa"));
+
+    m_providerCombo->setToolTip(tr("Provedor de IA a ser usado"));
+    m_manageBtn->setText(tr("Gerenciar"));
+    m_manageBtn->setToolTip(tr("Adicionar/editar/remover provedores"));
+    m_modelCombo->setPlaceholderText(tr("Selecione ou digite o modelo..."));
+    m_refreshBtn->setText(QStringLiteral("↻"));
+    m_refreshBtn->setToolTip(tr("Atualizar lista de modelos"));
+    m_pullBtn->setText(tr("Baixar"));
+    m_pullBtn->setToolTip(tr("Baixar um modelo do Ollama (ollama pull)"));
+    m_importBtn->setText(tr("Importar provedores do OpenCode"));
+    m_importBtn->setToolTip(tr("Lê a configuração do OpenCode (~/.config/opencode) e importa os provedores/chaves"));
+    m_providerGroup->setTitle(tr("Provedor & Modelo"));
+
+    m_tempLabel->setText(tr("Temperature"));
+    m_topPLabel->setText(tr("Top P"));
+    m_paramsGroup->setTitle(tr("Parâmetros"));
+    m_promptGroup->setTitle(tr("System Prompt"));
+    m_languageGroup->setTitle(tr("Idioma"));
+
+    m_folderBtn->setText(tr("📁 Selecionar Pasta (projeto)"));
+    m_folderBtn->setToolTip(tr("Selecionar uma pasta/projeto existente para anexar a estrutura de arquivos ao contexto"));
+    m_fileBtn->setText(tr("📄 Selecionar Arquivo"));
+    m_fileBtn->setToolTip(tr("Selecionar um arquivo para anexar o conteúdo ao contexto"));
+    m_explorerBtn->setText(tr("Abrir no Explorer"));
+    m_explorerBtn->setToolTip(tr("Abrir o caminho selecionado no gerenciador de arquivos do SO"));
+    m_systemGroup->setTitle(tr("Acesso ao Sistema Local"));
+
+    m_termInput->setPlaceholderText(tr("Comando a executar (ex.: dir, ls -la, ping ...)"));
+    m_runBtn->setText(tr("Executar"));
+    m_termOutput->setPlaceholderText(tr("Saída dos comandos aparecerá aqui..."));
+    m_sendOutputBtn->setText(tr("Enviar saída para a LLM"));
+
+    m_tabs->setTabText(0, tr("Modelo & Ajustes"));
+    m_tabs->setTabText(1, tr("Terminal"));
+}
+
+void MainWindow::applyLanguage(const QString &lang)
+{
+    qApp->removeTranslator(m_appTranslator);
+    qApp->removeTranslator(m_qtTranslator);
+
+    const QString dir = QCoreApplication::applicationDirPath()
+                        + QStringLiteral("/translations");
+
+    // Tradução do aplicativo (Português é o idioma-fonte, sem .qm próprio).
+    if (lang != QStringLiteral("pt")) {
+        if (m_appTranslator->load(QStringLiteral("llm_studio_") + lang + QStringLiteral(".qm"), dir))
+            qApp->installTranslator(m_appTranslator);
+    }
+
+    // Tradução dos diálogos padrão do Qt.
+    QString qtBase;
+    if (lang == QStringLiteral("zh"))
+        qtBase = QStringLiteral("qtbase_zh_CN");
+    else if (lang == QStringLiteral("pt"))
+        qtBase = QStringLiteral("qtbase_pt_BR");
+    else if (lang != QStringLiteral("hi"))
+        qtBase = QStringLiteral("qtbase_") + lang; // en, es, ar
+
+    if (!qtBase.isEmpty() && m_qtTranslator->load(qtBase + QStringLiteral(".qm"), dir))
+        qApp->installTranslator(m_qtTranslator);
+}
+
+void MainWindow::onLanguageChanged(int index)
+{
+    const QString lang = m_languageCombo->itemData(index).toString();
+    if (lang.isEmpty())
+        return;
+
+    QSettings settings;
+    settings.setValue(QStringLiteral("language"), lang);
+
+    applyLanguage(lang);
+    retranslateUi();
+    updateServerInfo(); // re-traduz o rótulo do servidor
 }
 
 void MainWindow::applyTheme()
@@ -884,13 +1006,13 @@ void MainWindow::updateServerInfo()
 {
     const ProviderConfig *p = currentProvider();
     if (!p) {
-        m_serverInfo->setText(QStringLiteral("Nenhum provedor configurado."));
+        m_serverInfo->setText(tr("Nenhum provedor configurado."));
         m_pullBtn->setEnabled(false);
         return;
     }
     m_pullBtn->setEnabled(p->kind == ProviderKind::Ollama);
-    const QString keyInfo = p->apiKey.isEmpty() ? QStringLiteral("sem chave") : QStringLiteral("chave definida");
-    m_serverInfo->setText(QStringLiteral("Servidor: ") + p->baseUrl
+    const QString keyInfo = p->apiKey.isEmpty() ? tr("sem chave") : tr("chave definida");
+    m_serverInfo->setText(tr("Servidor: ") + p->baseUrl
                           + QStringLiteral("\n(") + keyInfo + QStringLiteral(")"));
 }
 
@@ -905,7 +1027,7 @@ void MainWindow::onProviderChanged()
 void MainWindow::manageProviders()
 {
     QDialog dlg(this);
-    dlg.setWindowTitle(QStringLiteral("Gerenciar Provedores"));
+    dlg.setWindowTitle(tr("Gerenciar Provedores"));
     dlg.resize(520, 400);
 
     auto *v = new QVBoxLayout(&dlg);
@@ -921,10 +1043,10 @@ void MainWindow::manageProviders()
     refreshList();
     v->addWidget(list);
 
-    auto *addBtn = new QPushButton(QStringLiteral("Adicionar"));
-    auto *editBtn = new QPushButton(QStringLiteral("Editar"));
-    auto *delBtn = new QPushButton(QStringLiteral("Remover"));
-    auto *importBtn = new QPushButton(QStringLiteral("Importar do OpenCode"));
+    auto *addBtn = new QPushButton(tr("Adicionar"));
+    auto *editBtn = new QPushButton(tr("Editar"));
+    auto *delBtn = new QPushButton(tr("Remover"));
+    auto *importBtn = new QPushButton(tr("Importar do OpenCode"));
     auto *row = new QHBoxLayout;
     row->addWidget(addBtn);
     row->addWidget(editBtn);
@@ -932,7 +1054,7 @@ void MainWindow::manageProviders()
     row->addWidget(importBtn);
     v->addLayout(row);
 
-    auto *closeBtn = new QPushButton(QStringLiteral("Fechar"));
+    auto *closeBtn = new QPushButton(tr("Fechar"));
     v->addWidget(closeBtn);
 
     connect(closeBtn, &QPushButton::clicked, &dlg, &QDialog::accept);
@@ -957,8 +1079,8 @@ void MainWindow::manageProviders()
     connect(delBtn, &QPushButton::clicked, &dlg, [&]() {
         const int i = list->currentRow();
         if (m_providers.size() <= 1) {
-            QMessageBox::information(&dlg, QStringLiteral("Remover"),
-                QStringLiteral("É necessário manter ao menos um provedor."));
+            QMessageBox::information(&dlg, tr("Remover"),
+                tr("É necessário manter ao menos um provedor."));
             return;
         }
         if (i >= 0 && i < m_providers.size()) {
@@ -1076,10 +1198,10 @@ void MainWindow::importFromOpenCode()
     repopulateProviderCombo();
     updateServerInfo();
 
-    QMessageBox::information(this, QStringLiteral("OpenCode"),
+    QMessageBox::information(this, tr("OpenCode"),
         added > 0
-            ? QStringLiteral("Importado(s) %1 provedor(es) do OpenCode.").arg(added)
-            : QStringLiteral("Nenhum provedor novo encontrado no OpenCode."));
+            ? tr("Importado(s) %1 provedor(es) do OpenCode.").arg(added)
+            : tr("Nenhum provedor novo encontrado no OpenCode."));
 }
 
 // =====================================================================
@@ -1090,11 +1212,11 @@ void MainWindow::refreshModels()
 {
     const ProviderConfig *p = currentProvider();
     if (!p) {
-        setStatus(QStringLiteral("Nenhum provedor configurado."), true);
+        setStatus(tr("Nenhum provedor configurado."), true);
         return;
     }
 
-    setStatus(QStringLiteral("Buscando modelos..."));
+    setStatus(tr("Buscando modelos..."));
 
     QNetworkRequest request;
     if (p->kind == ProviderKind::Ollama) {
@@ -1131,7 +1253,7 @@ void MainWindow::onModelsLoaded(QNetworkReply *reply)
     m_modelCombo->clear();
 
     if (reply->error() != QNetworkReply::NoError) {
-        setStatus(QStringLiteral("Erro ao listar modelos: ") + reply->errorString(), true);
+        setStatus(tr("Erro ao listar modelos: ") + reply->errorString(), true);
         if (!previous.isEmpty())
             m_modelCombo->setEditText(previous);
         return;
@@ -1156,7 +1278,7 @@ void MainWindow::onModelsLoaded(QNetworkReply *reply)
 
     if (modelNames.isEmpty()) {
         m_modelCombo->setEditText(QString());
-        setStatus(QStringLiteral("Nenhum modelo encontrado. Verifique URL base e chave."), true);
+        setStatus(tr("Nenhum modelo encontrado. Verifique URL base e chave."), true);
         return;
     }
 
@@ -1169,7 +1291,7 @@ void MainWindow::onModelsLoaded(QNetworkReply *reply)
         idx = m_modelCombo->findText(previous);
     m_modelCombo->setCurrentIndex(idx >= 0 ? idx : 0);
 
-    setStatus(QStringLiteral("%1 modelo(s) encontrado(s).").arg(modelNames.size()));
+    setStatus(tr("%1 modelo(s) encontrado(s).").arg(modelNames.size()));
     onModelChanged();
 }
 
@@ -1180,8 +1302,8 @@ void MainWindow::pullModel()
         return;
 
     bool ok = false;
-    const QString name = QInputDialog::getText(this, QStringLiteral("Baixar Modelo"),
-        QStringLiteral("Nome do modelo a baixar (ex.: llama3.2, dolphin-mistral):"),
+    const QString name = QInputDialog::getText(this, tr("Baixar Modelo"),
+        tr("Nome do modelo a baixar (ex.: llama3.2, dolphin-mistral):"),
         QLineEdit::Normal, QString(), &ok).trimmed();
     if (!ok || name.isEmpty())
         return;
@@ -1195,7 +1317,7 @@ void MainWindow::pullModel()
 
     m_pullReply = m_net->post(request, QJsonDocument(body).toJson(QJsonDocument::Compact));
     m_pullBuffer.clear();
-    setStatus(QStringLiteral("Baixando modelo ") + name + QStringLiteral("..."));
+    setStatus(tr("Baixando modelo ") + name + QStringLiteral("..."));
 
     connect(m_pullReply, &QNetworkReply::readyRead, this, &MainWindow::onPullReadyRead);
     connect(m_pullReply, &QNetworkReply::finished, this, &MainWindow::onPullFinished);
@@ -1220,9 +1342,9 @@ void MainWindow::onPullReadyRead()
             const qint64 total = qint64(obj.value(QStringLiteral("total")).toDouble());
             const qint64 done = qint64(obj.value(QStringLiteral("completed")).toDouble());
             const int pct = total > 0 ? int(done * 100 / total) : 0;
-            setStatus(QStringLiteral("Baixando... %1 (%2%)").arg(status).arg(pct));
+            setStatus(tr("Baixando... %1 (%2%)").arg(status).arg(pct));
         } else if (!status.isEmpty()) {
-            setStatus(QStringLiteral("Baixando... ") + status);
+            setStatus(tr("Baixando... ") + status);
         }
     }
 }
@@ -1233,7 +1355,7 @@ void MainWindow::onPullFinished()
         return;
     m_pullReply->deleteLater();
     m_pullReply = nullptr;
-    setStatus(QStringLiteral("Download concluído. Atualizando modelos..."));
+    setStatus(tr("Download concluído. Atualizando modelos..."));
     refreshModels();
 }
 
@@ -1290,7 +1412,7 @@ void MainWindow::applyConversationToView()
     m_assistantAccum.clear();
 
     if (!m_contextBlocks.isEmpty())
-        appendSystemBlock(QStringLiteral("📁 %1 item(ns) de contexto anexado(s) a esta conversa.")
+        appendSystemBlock(tr("📁 %1 item(ns) de contexto anexado(s) a esta conversa.")
                               .arg(m_contextBlocks.size()));
 
     for (const auto &msg : m_history) {
@@ -1312,18 +1434,18 @@ void MainWindow::sendMessage()
         return;
 
     if (m_streamReply) {
-        QMessageBox::information(this, QStringLiteral("Aguarde"),
-            QStringLiteral("Já existe uma resposta sendo gerada."));
+        QMessageBox::information(this, tr("Aguarde"),
+            tr("Já existe uma resposta sendo gerada."));
         return;
     }
     if (!currentProvider()) {
-        QMessageBox::warning(this, QStringLiteral("Sem provedor"),
-            QStringLiteral("Configure um provedor antes de enviar."));
+        QMessageBox::warning(this, tr("Sem provedor"),
+            tr("Configure um provedor antes de enviar."));
         return;
     }
     if (m_modelCombo->currentText().trimmed().isEmpty()) {
-        QMessageBox::warning(this, QStringLiteral("Sem modelo"),
-            QStringLiteral("Selecione (ou digite) um modelo antes de enviar."));
+        QMessageBox::warning(this, tr("Sem modelo"),
+            tr("Selecione (ou digite) um modelo antes de enviar."));
         return;
     }
 
@@ -1354,7 +1476,7 @@ QJsonArray MainWindow::buildMessagesArray() const
         QJsonObject ctx;
         ctx.insert(QStringLiteral("role"), QStringLiteral("system"));
         ctx.insert(QStringLiteral("content"),
-            QStringLiteral("Contexto do sistema de arquivos fornecido pelo usuário:\n")
+            tr("Contexto do sistema de arquivos fornecido pelo usuário:\n")
                 + m_contextBlocks.join(QLatin1Char('\n')));
         messages.append(ctx);
     }
@@ -1426,7 +1548,7 @@ void MainWindow::startChatRequest()
     m_assistantBlockStart = m_chat->textCursor().position();
     m_assistantModel = m_modelCombo->currentText().trimmed();
     renderAssistantBlock();
-    setStatus(QStringLiteral("Gerando resposta..."));
+    setStatus(tr("Gerando resposta..."));
 
     connect(m_streamReply, &QNetworkReply::readyRead, this, &MainWindow::onStreamReadyRead);
     connect(m_streamReply, &QNetworkReply::finished, this, &MainWindow::onStreamFinished);
@@ -1500,7 +1622,7 @@ void MainWindow::onStreamFinished()
     m_streamReply->deleteLater();
     m_streamReply = nullptr;
     m_sendBtn->setEnabled(true);
-    setStatus(QStringLiteral("Pronto."));
+    setStatus(tr("Pronto."));
 }
 
 void MainWindow::onStreamError(QNetworkReply::NetworkError code)
@@ -1509,7 +1631,7 @@ void MainWindow::onStreamError(QNetworkReply::NetworkError code)
     if (!m_streamReply)
         return;
 
-    appendSystemBlock(QStringLiteral("⚠ Erro de conexão: ") + m_streamReply->errorString());
+    appendSystemBlock(tr("⚠ Erro de conexão: ") + m_streamReply->errorString());
 
     m_renderTimer->stop();
     renderAssistantBlock();
@@ -1520,7 +1642,7 @@ void MainWindow::onStreamError(QNetworkReply::NetworkError code)
     m_streamReply->deleteLater();
     m_streamReply = nullptr;
     m_sendBtn->setEnabled(true);
-    setStatus(QStringLiteral("Erro na conexão."), true);
+    setStatus(tr("Erro na conexão."), true);
 }
 
 // =====================================================================
@@ -1545,26 +1667,26 @@ QString MainWindow::readFileContext(const QString &path) const
 void MainWindow::selectFile()
 {
     const QString path = QFileDialog::getOpenFileName(this,
-        QStringLiteral("Selecionar Arquivo"), m_lastPath);
+        tr("Selecionar Arquivo"), m_lastPath);
     if (path.isEmpty())
         return;
 
     m_lastPath = path;
 
     const QString content = readFileContext(path);
-    QString block = QStringLiteral("Arquivo: ") + path;
+    QString block = tr("Arquivo: ") + path;
     if (!content.isEmpty())
-        block += QStringLiteral("\n--- conteúdo ---\n") + content;
+        block += tr("\n--- conteúdo ---\n") + content;
 
     m_contextBlocks.append(block);
-    appendSystemBlock(QStringLiteral("📎 Contexto anexado: ") + path);
-    setStatus(QStringLiteral("Arquivo anexado ao contexto."));
+    appendSystemBlock(tr("📎 Contexto anexado: ") + path);
+    setStatus(tr("Arquivo anexado ao contexto."));
 }
 
 void MainWindow::selectFolder()
 {
     const QString path = QFileDialog::getExistingDirectory(this,
-        QStringLiteral("Selecionar Pasta do Projeto"), m_lastPath);
+        tr("Selecionar Pasta do Projeto"), m_lastPath);
     if (path.isEmpty())
         return;
 
@@ -1574,12 +1696,12 @@ void MainWindow::selectFolder()
     int count = 0;
     listDirTree(path, 0, 4, count, 300, tree);
 
-    QString block = QStringLiteral("Projeto (pasta): ") + path
-        + QStringLiteral("\nEstrutura de arquivos:\n") + tree;
+    QString block = tr("Projeto (pasta): ") + path
+        + tr("\nEstrutura de arquivos:\n") + tree;
 
     m_contextBlocks.append(block);
-    appendSystemBlock(QStringLiteral("📁 Projeto anexado: ") + path);
-    setStatus(QStringLiteral("Projeto anexado ao contexto."));
+    appendSystemBlock(tr("📁 Projeto anexado: ") + path);
+    setStatus(tr("Projeto anexado ao contexto."));
 }
 
 void MainWindow::openInExplorer()
@@ -1587,7 +1709,7 @@ void MainWindow::openInExplorer()
     QString target = m_lastPath;
     if (target.isEmpty()) {
         const QString chosen = QFileDialog::getExistingDirectory(this,
-            QStringLiteral("Escolha uma pasta para abrir"));
+            tr("Escolha uma pasta para abrir"));
         if (chosen.isEmpty())
             return;
         target = chosen;
@@ -1598,8 +1720,8 @@ void MainWindow::openInExplorer()
     const QString dir = info.isDir() ? target : info.absolutePath();
 
     if (!QDesktopServices::openUrl(QUrl::fromLocalFile(dir)))
-        QMessageBox::warning(this, QStringLiteral("Erro"),
-            QStringLiteral("Não foi possível abrir: ") + dir);
+        QMessageBox::warning(this, tr("Erro"),
+            tr("Não foi possível abrir: ") + dir);
 }
 
 // =====================================================================
@@ -1613,8 +1735,8 @@ void MainWindow::runCommand()
         return;
 
     if (m_process->state() != QProcess::NotRunning) {
-        QMessageBox::information(this, QStringLiteral("Aguarde"),
-            QStringLiteral("Um comando ainda está em execução."));
+        QMessageBox::information(this, tr("Aguarde"),
+            tr("Um comando ainda está em execução."));
         return;
     }
 
@@ -1654,7 +1776,7 @@ void MainWindow::onCommandFinished(int exitCode, QProcess::ExitStatus status)
     m_lastCommandOutput = m_termAccum;
     m_sendOutputBtn->setEnabled(!m_lastCommandOutput.trimmed().isEmpty());
 
-    m_termOutput->appendPlainText(QStringLiteral("\n[Processo encerrado — código %1]\n").arg(exitCode));
+    m_termOutput->appendPlainText(tr("\n[Processo encerrado — código %1]\n").arg(exitCode));
 }
 
 void MainWindow::sendTerminalOutputToPrompt()
@@ -1662,11 +1784,11 @@ void MainWindow::sendTerminalOutputToPrompt()
     if (m_lastCommandOutput.trimmed().isEmpty())
         return;
 
-    const QString text = QStringLiteral(
+    const QString text = tr(
         "Analise a seguinte saída de comando executado no terminal:\n```\n")
         + m_lastCommandOutput + QStringLiteral("\n```");
 
-    appendSystemBlock(QStringLiteral("⌨ Saída do terminal enviada para a LLM."));
+    appendSystemBlock(tr("⌨ Saída do terminal enviada para a LLM."));
     sendUserMessage(text);
 }
 
@@ -1677,8 +1799,8 @@ void MainWindow::sendTerminalOutputToPrompt()
 void MainWindow::clearChat()
 {
     if (!m_history.isEmpty() || !m_contextBlocks.isEmpty()) {
-        const auto ret = QMessageBox::question(this, QStringLiteral("Limpar chat"),
-            QStringLiteral("Deseja apagar todo o histórico da conversa e o contexto anexado?"),
+        const auto ret = QMessageBox::question(this, tr("Limpar chat"),
+            tr("Deseja apagar todo o histórico da conversa e o contexto anexado?"),
             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (ret != QMessageBox::Yes)
             return;
@@ -1690,21 +1812,21 @@ void MainWindow::clearChat()
     m_assistantAccum.clear();
     m_assistantBlockStart = -1;
     saveCurrentConversation(); // persiste o estado limpo desta conversa
-    setStatus(QStringLiteral("Chat limpo."));
+    setStatus(tr("Chat limpo."));
 }
 
 void MainWindow::exportConversation()
 {
     if (m_history.isEmpty()) {
-        QMessageBox::information(this, QStringLiteral("Exportar"),
-            QStringLiteral("Não há conversa para exportar."));
+        QMessageBox::information(this, tr("Exportar"),
+            tr("Não há conversa para exportar."));
         return;
     }
 
     const QString path = QFileDialog::getSaveFileName(this,
-        QStringLiteral("Exportar Conversa"),
+        tr("Exportar Conversa"),
         QDir::homePath() + QStringLiteral("/conversa"),
-        QStringLiteral("Markdown (*.md);;Texto puro (*.txt)"));
+        tr("Markdown (*.md);;Texto puro (*.txt)"));
     if (path.isEmpty())
         return;
 
@@ -1712,13 +1834,13 @@ void MainWindow::exportConversation()
 
     QString content;
     if (markdown)
-        content += QStringLiteral("# Conversa LLM Studio\n\n");
+        content += tr("# Conversa LLM Studio\n\n");
 
     const QString sysPrompt = m_systemPrompt->toPlainText().trimmed();
     if (!sysPrompt.isEmpty()) {
         content += markdown
-            ? QStringLiteral("**System Prompt:**\n\n") + sysPrompt + QStringLiteral("\n\n---\n\n")
-            : QStringLiteral("System Prompt:\n") + sysPrompt + QStringLiteral("\n\n---\n\n");
+            ? tr("**System Prompt:**\n\n") + sysPrompt + QStringLiteral("\n\n---\n\n")
+            : tr("System Prompt:\n") + sysPrompt + QStringLiteral("\n\n---\n\n");
     }
 
     for (const auto &entry : m_history) {
@@ -1727,13 +1849,13 @@ void MainWindow::exportConversation()
 
         if (markdown) {
             const QString heading = (role == QStringLiteral("user"))
-                ? QStringLiteral("## 👤 Usuário")
-                : QStringLiteral("## 🤖 Assistente — ") + m_modelCombo->currentText().trimmed();
+                ? tr("## 👤 Usuário")
+                : tr("## 🤖 Assistente — ") + m_modelCombo->currentText().trimmed();
             content += heading + QStringLiteral("\n\n") + text + QStringLiteral("\n\n");
         } else {
             const QString label = (role == QStringLiteral("user"))
-                ? QStringLiteral("Usuário:")
-                : QStringLiteral("Assistente — ") + m_modelCombo->currentText().trimmed() + QStringLiteral(":");
+                ? tr("Usuário:")
+                : tr("Assistente — ") + m_modelCombo->currentText().trimmed() + QStringLiteral(":");
             content += label + QStringLiteral("\n");
             content += text + QStringLiteral("\n\n");
         }
@@ -1741,14 +1863,14 @@ void MainWindow::exportConversation()
 
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        QMessageBox::warning(this, QStringLiteral("Exportar"),
-            QStringLiteral("Não foi possível gravar o arquivo:\n") + path);
+        QMessageBox::warning(this, tr("Exportar"),
+            tr("Não foi possível gravar o arquivo:\n") + path);
         return;
     }
     file.write(content.toUtf8());
     file.close();
 
-    setStatus(QStringLiteral("Conversa exportada para ") + path);
+    setStatus(tr("Conversa exportada para ") + path);
 }
 
 // =====================================================================
@@ -1759,7 +1881,7 @@ void MainWindow::appendUserBlock(const QString &text)
 {
     m_chat->moveCursor(QTextCursor::End);
     m_chat->insertHtml(
-        QStringLiteral("<p style='color:#a6e3a1; font-weight:bold; margin-top:10px;'>👤 Você</p>")
+        QStringLiteral("<p style='color:#a6e3a1; font-weight:bold; margin-top:10px;'>") + tr("👤 Você") + QStringLiteral("</p>")
         + markdownToHtml(text));
     m_chat->moveCursor(QTextCursor::End);
     m_chat->verticalScrollBar()->setValue(m_chat->verticalScrollBar()->maximum());
@@ -1789,7 +1911,7 @@ void MainWindow::renderAssistantBlock()
     if (m_assistantBlockStart < 0)
         return;
 
-    QString header = QStringLiteral("🤖 Assistente");
+    QString header = tr("🤖 Assistente");
     if (!m_assistantModel.isEmpty())
         header += QStringLiteral(" — ") + m_assistantModel.toHtmlEscaped();
 

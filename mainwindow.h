@@ -19,6 +19,9 @@ class QPushButton;
 class QLineEdit;
 class QLabel;
 class QTimer;
+class QGroupBox;
+class QTabWidget;
+class QTranslator;
 
 // Tipos de provedor suportados.
 enum class ProviderKind {
@@ -86,11 +89,14 @@ private slots:
     // Utilidades
     void clearChat();
     void exportConversation();
+    void onLanguageChanged(int index);
 
 private:
     void buildUi();
     void applyTheme();
     void setStatus(const QString &text, bool isError = false);
+    void applyLanguage(const QString &lang);
+    void retranslateUi();
 
     // Provedores
     void loadProviders();
@@ -154,9 +160,13 @@ private:
     QString m_lastPath;
     QTimer *m_renderTimer = nullptr;
 
+    QTranslator *m_appTranslator = nullptr;
+    QTranslator *m_qtTranslator = nullptr;
+
     // Widgets
     QComboBox *m_providerCombo = nullptr;
     QComboBox *m_modelCombo = nullptr;
+    QComboBox *m_languageCombo = nullptr;
     QTextBrowser *m_chat = nullptr;
     QPlainTextEdit *m_input = nullptr;
     QPushButton *m_sendBtn = nullptr;
@@ -175,4 +185,16 @@ private:
     QPushButton *m_pullBtn = nullptr;
     QLabel *m_serverInfo = nullptr;
     QLabel *m_statusLabel = nullptr;
+
+    QGroupBox *m_providerGroup = nullptr;
+    QGroupBox *m_paramsGroup = nullptr;
+    QGroupBox *m_promptGroup = nullptr;
+    QGroupBox *m_systemGroup = nullptr;
+    QGroupBox *m_languageGroup = nullptr;
+    QTabWidget *m_tabs = nullptr;
+    QPushButton *m_manageBtn = nullptr;
+    QPushButton *m_refreshBtn = nullptr;
+    QPushButton *m_importBtn = nullptr;
+    QLabel *m_tempLabel = nullptr;
+    QLabel *m_topPLabel = nullptr;
 };
